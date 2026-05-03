@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Bot — Control Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <!-- ═══════════════ DEBUG PANEL ═══════════════ -->
+  <div class="debug-panel">
+    <div class="debug-header">
+      <div class="debug-header-left">
+        <div class="debug-status-dot" id="statusDot"></div>
+        <span class="debug-title">Debug Console</span>
+      </div>
+      <button class="debug-clear-btn" onclick="clearLogs()">Clear</button>
+    </div>
+
+    <div class="debug-session">
+      <div class="debug-session-label">Session UUID</div>
+      <div class="debug-session-id" id="sessionUuid">—</div>
+    </div>
+
+    <div class="db-status-bar">
+      <div class="db-item">
+        <div class="db-dot mock"></div>
+        <span class="db-label">PostgreSQL</span>
+        <span class="db-val">mock mode</span>
+      </div>
+      <div class="db-item">
+        <div class="db-dot connected"></div>
+        <span class="db-label">OpenAI API</span>
+        <span class="db-val">ready</span>
+      </div>
+      <span class="db-mock-tag">Mock</span>
+    </div>
+
+    <div class="debug-logs" id="debugLogs">
+      <div class="debug-empty" id="debugEmpty">
+        <div class="debug-empty-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        <span>Loglar burada görünəcək</span>
+      </div>
+    </div>
+
+    <div class="debug-stats">
+      <div class="stat-item">
+        <span class="stat-val" id="statRequests">0</span>
+        <span class="stat-lbl">Sorğu</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-val" id="statFiles">0</span>
+        <span class="stat-lbl">Fayl tapıldı</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-val" id="statErrors">0</span>
+        <span class="stat-lbl">Xəta</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-val" id="statTokens">0</span>
+        <span class="stat-lbl">Token</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ CHAT PANEL ═══════════════ -->
+  <div class="chat-panel">
+
+    <div class="chat-topbar">
+      <div class="chat-topbar-title">
+        <span class="chat-name" id="chatTitle">Yeni Söhbət</span>
+        <span class="chat-sub" id="chatSub">Sülü — Data Search</span>
+      </div>
+      <button class="new-chat-btn" onclick="startNewChat()">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Yeni Söhbət
+      </button>
+      <button class="icon-btn" onclick="toggleSidebar()" title="Söhbətlər">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-empty-state" id="emptyState">
+        <div class="empty-logo">
+          <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        </div>
+        <div class="empty-title">Nə öyrənmək istəyirsən?</div>
+        <div class="empty-sub">Sülü data qovluğundakı faylları oxuyaraq suallarına cavab verəcək. Debug panelindən prosesi izləyə bilərsən.</div>
+        <div class="empty-hints">
+          <div class="hint-chip" onclick="sendHint(this)">Satış hesabatı hansı faylda?</div>
+          <div class="hint-chip" onclick="sendHint(this)">2024-cü il məlumatları</div>
+          <div class="hint-chip" onclick="sendHint(this)">Müştəri siyahısı</div>
+          <div class="hint-chip" onclick="sendHint(this)">Son əməliyyatlar</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="chat-input-row">
+        <textarea class="chat-input" id="chatInput" placeholder="Sualını yaz..." rows="1" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+          <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+      <div class="input-hint">Enter — göndər &nbsp;·&nbsp; Shift+Enter — yeni sətir</div>
+    </div>
+
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Söhbətlər</span>
+        <button class="icon-btn" onclick="toggleSidebar()">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div style="padding: 0 14px;">
+        <button class="sidebar-new-chat" onclick="startNewChat(); toggleSidebar();">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Yeni Söhbət Başlat
+        </button>
+      </div>
+
+      <div class="sidebar-pg-badge">
+        <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        PostgreSQL — inteqrasiya hazırdır (mock rejim)
+      </div>
+
+      <div class="sidebar-section" id="sidebarList">
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="notif" id="notif"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
