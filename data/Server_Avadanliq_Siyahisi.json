@@ -1,0 +1,46 @@
+{
+  "inventory_date": "2026-04-30",
+  "data_center": "Baku_Node_01",
+  "servers": [
+    {
+      "id": "SRV-001",
+      "model": "HPE ProLiant ML10 Gen9",
+      "purpose": "Local Hosting & Database",
+      "specs": {
+        "cpu": "Intel Xeon E3-1225 v5",
+        "ram": "32GB DDR4 ECC",
+        "storage": ["2x 1TB HDD Raid 1", "1x 500GB SSD"],
+        "network": "1GbE Dual Port"
+      },
+      "status": "Active",
+      "ip_address": "192.168.1.50"
+    },
+    {
+      "id": "SRV-002",
+      "model": "HPE ProLiant DL360 Gen10",
+      "purpose": "Virtualization Cluster",
+      "specs": {
+        "cpu": "2x Intel Xeon Silver 4210",
+        "ram": "128GB DDR4 Smart Memory",
+        "storage": ["4x 900GB SAS 15K"],
+        "network": "10GbE SFP+"
+      },
+      "status": "Standby",
+      "ip_address": "192.168.1.51"
+    },
+    {
+      "id": "AI-WK-01",
+      "model": "Custom AI Workstation",
+      "purpose": "AI Token Generation & RAG Testing",
+      "specs": {
+        "cpu": "AMD Ryzen 9 7950X",
+        "gpu": "NVIDIA RTX 3090 24GB VRAM",
+        "ram": "64GB DDR5 6000MHz",
+        "storage": ["2TB NVMe Gen4"],
+        "psu": "1000W Platinum"
+      },
+      "status": "Active",
+      "ip_address": "192.168.1.6000"
+    }
+  ]
+}

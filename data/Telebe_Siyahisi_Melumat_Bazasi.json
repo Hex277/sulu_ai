@@ -1,0 +1,29 @@
+{
+  "students": [
+    {
+      "id": 1,
+      "name": "Aysel Məmmədova",
+      "age": 19
+    },
+    {
+      "id": 2,
+      "name": "Elnur Qasımov",
+      "age": 21
+    },
+    {
+      "id": 3,
+      "name": "Lalə Əliyeva",
+      "age": 18
+    },
+    {
+      "id": 4,
+      "name": "Rəşad Həsənov",
+      "age": 22
+    },
+    {
+      "id": 5,
+      "name": "Günel Hüseynova",
+      "age": 20
+    }
+  ]
+}
