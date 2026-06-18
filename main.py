@@ -2,13 +2,13 @@ import time
 import uuid
 import json
 from file_manager import get_file_list, read_file_content
-from search_engine import python_lexical_search, deep_content_search 
+from search_engine import python_lexical_search, anytxt_search 
 from router import route_query_to_file
 from generator import generate_final_response
 from db_manager import save_to_db, get_history, get_synonyms_from_db
 
 def main():
-    print("🚀 Universal AI Terminalı (HYBRID GRANULAR RAG) işə düşdü...")
+    print("🚀 AI işə düşdü...")
     session_id = str(uuid.uuid4())
     print(f"🆔 Session ID: {session_id}")
 
@@ -75,69 +75,80 @@ def main():
                 content = read_file_content(f_name)
                 print(f"      ↳ Oxuma müddəti: {time.time()-t_read:.4f} san | Məzmun uzunluğu: {len(content)} simvol")
                 combined_context += f"\n--- MƏNBƏ FAYL (Tam): {f_name} ---\n{content}\n"
-        
+            
         else:
-            print("   ❌ Leksikal axtarış nəticə vermədi.")
-            
-            # B. Faylların İÇİNDƏ sətir-səviyyəli axtarış
-            print(f"\n🔬 [B] DƏRİN MƏZMUN AXTARIŞI (İlk {min(10, len(available_files))} fayl üzrə)...")
-            candidates = available_files[:10]
-            print(f"   ↳ Namizəd fayllar: {candidates}")
-            t2 = time.time()
-            content_results = deep_content_search(user_query, candidates)
-            print(f"   ↳ Dərin axtarış müddəti: {time.time()-t2:.4f} san")
-            
-            if content_results:
-                print(f"   ↳ Dərin axtarış NƏTİCƏLƏRİ ({len(content_results)} faylda tapıldı):")
-                for fname, rows in content_results.items():
-                    print(f"      📄 '{fname}' → {len(rows)} uyğun sətir")
-                    for ri, row in enumerate(rows[:3], 1):  # İlk 3 sətri göstər
-                        preview = str(row)[:100]
-                        print(f"         Sətir {ri}: {preview}{'...' if len(str(row))>100 else ''}")
+                print("   ❌ Leksikal axtarış nəticə vermədi.")
                 
-                search_mode = "GRANULAR"
-                selected_files = list(content_results.keys())[:3]
-                print(f"\n🎯 Seçilən fayllar (top 3): {selected_files}")
+                # ---------------------------------------------------------
+                # B. ANYTXT İLƏ DƏRİN MƏZMUN AXTARIŞI
+                # ---------------------------------------------------------
+                print(f"\n🔬 [B] ANYTXT DƏRİN MƏZMUN AXTARIŞI...")
                 
-                for f_name in selected_files:
-                    rows = content_results[f_name]
-                    combined_context += f"\n--- MƏNBƏ FAYL (Sətirlər): {f_name} ---\n"
-                    combined_context += json.dumps(rows, indent=2, ensure_ascii=False) + "\n"
-                    print(f"   ✅ '{f_name}' kontextə əlavə edildi ({len(rows)} sətir).")
-            else:
-                print("   ❌ Dərin axtarış da nəticə vermədi.")
+                t2 = time.time()
+                # AnyTXT özü bütün indeksdə axtarış edir, limitləməyə ehtiyac yoxdur
+                content_results = anytxt_search(user_query)
+                duration = time.time() - t2
+                print(f"   ↳ AnyTXT axtarış müddəti: {duration:.4f} san")
                 
-                # C. Router-ə keçid
-                print(f"\n🧭 [C] AI ROUTER işə düşür...")
-                print(f"   ↳ Router-ə göndərilən sorğu: '{user_query}'")
-                print(f"   ↳ Router-ə göndərilən fayl siyahısı: {available_files}")
-                print(f"   ↳ Router-ə göndərilən son fayl: {last_selected_file}")
-                print(f"   ↳ Router-ə göndərilən tarixçə uzunluğu: {len(chat_history)} mesaj")
-                
-                search_mode = "ROUTER"
-                t3 = time.time()
-                res = route_query_to_file(user_query, available_files, chat_history, last_selected_file)
-                router_time = time.time() - t3
-                
-                print(f"\n   🎯 ROUTER QƏRARI:")
-                print(f"      ↳ Seçilən fayl:    '{res}'")
-                print(f"      ↳ Router müddəti:  {router_time:.2f} san")
-                
-                if res:
-                    if res in available_files:
-                        print(f"      ✅ Router cavabı fayl siyahısında tapıldı.")
-                    else:
-                        print(f"      ⚠️  XƏBƏRDARLIQ: Router '{res}' qaytardı amma bu fayl siyahısında YOXdur!")
+                if content_results:
+                    print(f"   ↳ AnyTXT NƏTİCƏLƏRİ ({len(content_results)} faylda tapıldı):")
                     
-                    selected_files = [res]
-                    print(f"   📂 Oxunur: '{res}'...")
-                    t_read = time.time()
-                    content = read_file_content(res)
-                    print(f"      ↳ Oxuma müddəti: {time.time()-t_read:.4f} san | Məzmun uzunluğu: {len(content)} simvol")
-                    combined_context = f"\n--- MƏNBƏ FAYL (Router): {res} ---\n{content}"
+                    # Tapılan fayllardan ən uyğun ilk 3-nü seçirik
+                    selected_files = list(content_results.keys())[:3]
+                    search_mode = "ANYTXT_GRANULAR"
+                    
+                    for fname in selected_files:
+                        rows = content_results[fname]
+                        print(f"      📄 '{fname}' → {len(rows)} uyğun sətir")
+                        
+                        # İlk 3 uyğun sətrin önizləməsini göstər
+                        for ri, row in enumerate(rows[:3], 1):
+                            preview = str(row)[:100]
+                            print(f"         Sətir {ri}: {preview}{'...' if len(str(row))>100 else ''}")
+                        
+                        # Kontekstə AnyTXT-dən gələn konkret sətirləri əlavə edirik
+                        combined_context += f"\n--- MƏNBƏ FAYL (AnyTXT Sətirlər): {fname} ---\n"
+                        combined_context += json.dumps(rows, indent=2, ensure_ascii=False) + "\n"
+                        print(f"   ✅ '{fname}' sətirləri kontextə əlavə edildi.")
+                    
+                    print(f"\n🎯 Seçilən AnyTXT faylları: {selected_files}")
+                    
                 else:
-                    print(f"      ❌ Router heç bir fayl seçmədi (None qaytardı).")
-
+                    print("   ❌ AnyTXT heç bir sənəddə uyğun məzmun tapmadı.")
+                    
+                    # ---------------------------------------------------------
+                    # C. AI ROUTER (AnyTXT nəsə tapmasa işə düşür)
+                    # ---------------------------------------------------------
+                    print(f"\n🧭 [C] AI ROUTER işə düşür...")
+                    print(f"   ↳ Router-ə göndərilən sorğu: '{user_query}'")
+                    print(f"   ↳ Router-ə göndərilən fayl siyahısı: {available_files}")
+                    print(f"   ↳ Router-ə göndərilən son fayl: {last_selected_file}")
+                    
+                    search_mode = "ROUTER"
+                    t3 = time.time()
+                    # Router hansı faylı oxumalı olduğumuza qərar verir
+                    res = route_query_to_file(user_query, available_files, chat_history, last_selected_file)
+                    router_time = time.time() - t3
+                    
+                    print(f"\n   🎯 ROUTER QƏRARI:")
+                    print(f"      ↳ Seçilən fayl:    '{res}'")
+                    print(f"      ↳ Router müddəti:  {router_time:.2f} san")
+                    
+                    if res:
+                        if res in available_files:
+                            print(f"      ✅ Router cavabı fayl siyahısında tapıldı.")
+                            selected_files = [res]
+                            print(f"   📂 Oxunur: '{res}'...")
+                            
+                            t_read = time.time()
+                            content = read_file_content(res)
+                            print(f"      ↳ Oxuma müddəti: {time.time()-t_read:.4f} san | Uzunluq: {len(content)} simvol")
+                            
+                            combined_context = f"\n--- MƏNBƏ FAYL (Router): {res} ---\n{content}"
+                        else:
+                            print(f"      ⚠️  XƏBƏRDARLIQ: Router '{res}' qaytardı amma fayl qovluqda yoxdur!")
+                    else:
+                        print(f"      ❌ Router heç bir fayl seçmədi.")
         search_time = time.time() - start_search
         
         print(f"\n📊 AXTARIŞ XÜLASƏSİ:")

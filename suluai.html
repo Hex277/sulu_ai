@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="az">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Bot — Control Panel</title>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sülü AI - Test</title>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -72,7 +73,7 @@
 
     <div class="chat-topbar">
       <div class="chat-topbar-title">
-        <span class="chat-name" id="chatTitle">Yeni Söhbət</span>
+        <span class="chat-name" id="chatTitle">Sülü AI</span>
         <span class="chat-sub" id="chatSub">Sülü — Data Search</span>
       </div>
       <button class="new-chat-btn" onclick="startNewChat()">
@@ -92,10 +93,10 @@
         <div class="empty-title">Nə öyrənmək istəyirsən?</div>
         <div class="empty-sub">Sülü data qovluğundakı faylları oxuyaraq suallarına cavab verəcək. Debug panelindən prosesi izləyə bilərsən.</div>
         <div class="empty-hints">
-          <div class="hint-chip" onclick="sendHint(this)">Satış hesabatı hansı faylda?</div>
-          <div class="hint-chip" onclick="sendHint(this)">2024-cü il məlumatları</div>
-          <div class="hint-chip" onclick="sendHint(this)">Müştəri siyahısı</div>
-          <div class="hint-chip" onclick="sendHint(this)">Son əməliyyatlar</div>
+          <div class="hint-chip" onclick="sendHint(this)">Elvin müəllim haqqında məlumat ver</div>
+          <div class="hint-chip" onclick="sendHint(this)">Salam</div>
+          <div class="hint-chip" onclick="sendHint(this)">C</div>
+          <div class="hint-chip" onclick="sendHint(this)">D</div>
         </div>
       </div>
     </div>
@@ -144,5 +145,6 @@
 <div class="notif" id="notif"></div>
 
 <script src="script.js"></script>
+<script src="htmlpatch.js"></script>
 </body>
 </html>

@@ -80,7 +80,7 @@ def save_to_db(session_id, role, content):
         if conn:
             conn.close()
     
-def get_history(session_id, limit=5):
+def get_history(session_id, limit=10):
     """Söhbət tarixçəsini strukturlaşdırılmış siyahı kimi qaytarır"""
     conn = None
     try:

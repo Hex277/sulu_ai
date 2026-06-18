@@ -1,89 +1,31 @@
 // ═══════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════
-let sessionUuid = generateUuid();
-let statRequests = 0, statFiles = 0, statErrors = 0, statTokens = 0;
-let isTyping = false;
+let logCount = 0; // Xətanın əsas səbəbi budur
+let conversationsCache = [];
 let currentConvId = null;
-let logCount = 0;
+let sessionUuid = generateUuid();
+let isTyping = false;
 
+// Statistika üçün:
+let statRequests = 0;
+let statFiles = 0;
+let statErrors = 0;
+let statTokens = 0;
 // ─── MOCK DB: PostgreSQL-ready structure ───
 // In production: replace with actual pg queries
-const db = {
-  conversations: [
-    {
-      id: 'conv-001',
-      userId: 'admin-uuid-0001',
-      userLabel: 'Admin',
-      userType: 'admin',
-      title: 'Satış məlumatları 2024',
-      preview: 'Q4 satış hesabatı hansı faylda...',
-      date: '2025-05-02',
-      time: '14:32',
-      messages: [
-        { role: 'user', content: 'Q4 satış hesabatı hansı faylda?', time: '14:30' },
-        { role: 'bot', content: 'sales_reports/ qovluğunda <strong>q4_2024_report.csv</strong> faylı tapıldı. Həmin faylda Oktyabr–Dekabr dövrü üzrə ümumi satış 1,240,500 AZN təşkil edir.', time: '14:30' },
-        { role: 'user', content: 'Ən çox satan məhsul hansıdır?', time: '14:32' },
-        { role: 'bot', content: 'Məlumatların analizi nəticəsində <strong>Məhsul A</strong> ən çox satılan kateqoriya olaraq müəyyən edildi — 340 ədəd, ümumi gəlir 127,800 AZN.', time: '14:32' }
-      ]
-    },
-    {
-      id: 'conv-002',
-      userId: 'admin-uuid-0001',
-      userLabel: 'Admin',
-      userType: 'admin',
-      title: 'Müştəri siyahısı sorğusu',
-      preview: 'Bakı regionu üzrə müştərilər...',
-      date: '2025-05-01',
-      time: '10:15',
-      messages: [
-        { role: 'user', content: 'Bakı regionu üzrə aktiv müştərilər', time: '10:14' },
-        { role: 'bot', content: '<strong>customers/baku_active_2024.xlsx</strong> faylında 234 aktiv müştəri məlumatı var. Ən böyük 3 hesab: TechAZ MMC, GreenBuild SC, Prime Logistika.', time: '10:15' }
-      ]
-    },
-    {
-      id: 'conv-003',
-      userId: 'user-uuid-9f2a',
-      userLabel: 'İstifadəçi #9f2a',
-      userType: 'user',
-      title: 'İnventar yoxlaması',
-      preview: 'Stokda olan mallar...',
-      date: '2025-05-02',
-      time: '09:45',
-      messages: [
-        { role: 'user', content: 'Stokda olan malların siyahısı', time: '09:44' },
-        { role: 'bot', content: '<strong>inventory/stock_current.json</strong> faylına müraciət edildi. Cəmi 89 SKU mövcuddur, 12-si kritik minimum həddindədir.', time: '09:45' }
-      ]
-    },
-    {
-      id: 'conv-004',
-      userId: 'user-uuid-3c7e',
-      userLabel: 'İstifadəçi #3c7e',
-      userType: 'user',
-      title: 'Hesabat şablonu sualı',
-      preview: 'Aylıq hesabat formatı...',
-      date: '2025-04-30',
-      time: '16:20',
-      messages: [
-        { role: 'user', content: 'Aylıq hesabat formatı necədir?', time: '16:19' },
-        { role: 'bot', content: '<strong>templates/monthly_report_template.docx</strong> faylında standart hesabat şablonu tapıldı. Faylda başlıq, icmal cədvəli, qrafik sahələri və imza bölməsi mövcuddur.', time: '16:20' }
-      ]
-    }
-  ]
-};
-
+const API_URL = "http://localhost:5000";
 // ═══════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
+
+document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('sessionUuid').textContent = sessionUuid;
   addLog('info', 'Sistem başladı', 'AI Bot Control Panel v1.0');
-  addLog('db', 'PostgreSQL', 'Mock rejim aktivdir — real inteqrasiya üçün pg modulu qoşun');
-  addLog('info', 'Session', 'UUID: ' + sessionUuid);
-  addLog('info', 'Data qovluğu', 'data/ → 24 fayl tapıldı (mock)');
-  renderSidebar();
+  await checkServerStatus();
+  await loadSessionsFromServer();
+  addLog('info', 'Sidebar', `${conversationsCache.length} söhbət tapıldı`);
 });
-
 // ═══════════════════════════════════════════════
 //  UUID
 // ═══════════════════════════════════════════════
@@ -98,16 +40,23 @@ function generateUuid() {
 //  LOG SYSTEM
 // ═══════════════════════════════════════════════
 function addLog(type, label, msg) {
+  // Əgər logCount yuxarıda təyin olunmayıbsa, xəta verməməsi üçün:
+  if (typeof logCount === 'undefined') window.logCount = 0;
+  window.logCount++;
+
+  // "Hələ loq yoxdur" yazısını gizlət
   const empty = document.getElementById('debugEmpty');
   if (empty) empty.style.display = 'none';
 
-  logCount++;
   const now = new Date();
   const time = now.toTimeString().slice(0, 8);
   const logs = document.getElementById('debugLogs');
+  if (!logs) return;
 
   const entry = document.createElement('div');
+  // Sənin orijinal klass sistemin: log-entry və log-type
   entry.className = `log-entry log-${type}`;
+  
   entry.innerHTML = `
     <span class="log-time">${time}</span>
     <div class="log-body">
@@ -115,10 +64,12 @@ function addLog(type, label, msg) {
       <span class="log-msg">${msg}</span>
     </div>
   `;
+
   logs.appendChild(entry);
+  
+  // Avtomatik aşağı sürüşdür ki, yeni loqlar görünsün
   logs.scrollTop = logs.scrollHeight;
 }
-
 function clearLogs() {
   const logs = document.getElementById('debugLogs');
   logs.innerHTML = `
@@ -141,112 +92,158 @@ function toggleSidebar() {
   sidebar.classList.toggle('open');
   overlay.classList.toggle('open');
 }
-
 function renderSidebar() {
   const container = document.getElementById('sidebarList');
+  if (!container) return;
+  
   container.innerHTML = '';
 
-  const adminConvs = db.conversations.filter(c => c.userType === 'admin');
-  const userConvs = db.conversations.filter(c => c.userType === 'user');
-
-  if (adminConvs.length) {
-    const h1 = document.createElement('div');
-    h1.className = 'sidebar-section-header';
-    h1.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Mənim Söhbətlərim`;
-    container.appendChild(h1);
-    adminConvs.forEach(c => container.appendChild(createConvItem(c)));
+  // Əgər söhbət yoxdursa, mərkəzləşdirilmiş boş vəziyyət mesajı
+  if (!conversationsCache || conversationsCache.length === 0) {
+    container.innerHTML = `
+      <div style="padding:32px 16px; text-align:center; font-size:12px; color:var(--text-3); opacity:0.7;">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" 
+             stroke-width="1.5" style="margin-bottom:8px; opacity:0.5;">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+        </svg>
+        <div>Hələ heç bir söhbət yoxdur</div>
+      </div>`;
+    return;
   }
 
-  if (userConvs.length) {
-    const h2 = document.createElement('div');
-    h2.className = 'sidebar-section-header';
-    h2.innerHTML = `<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> İstifadəçi Söhbətləri`;
-    container.appendChild(h2);
-    userConvs.forEach(c => container.appendChild(createConvItem(c)));
-  }
+  // Sənin orijinal "Söhbət Tarixçəsi" başlığın və ikonu
+  const header = document.createElement('div');
+  header.className = 'sidebar-section-header';
+  header.innerHTML = `
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+    </svg>
+    Söhbət Tarixçəsi
+  `;
+  container.appendChild(header);
+
+  // Söhbətləri tək-tək əlavə et
+  // Ən son söhbətin yuxarıda görünməsi üçün reverse() istifadə edə bilərsən
+  const sortedConvs = [...conversationsCache].reverse();
+  
+  sortedConvs.forEach(conv => {
+    container.appendChild(createConvItem(conv));
+  });
 }
-
 function createConvItem(conv) {
   const el = document.createElement('div');
-  el.className = 'conv-item' + (currentConvId === conv.id ? ' active' : '');
+  
+  // FİX: ID-ləri string-ə çevirib müqayisə edirik ki, 'active' klassı itməsin
+  const isActive = String(currentConvId) === String(conv.id);
+  el.className = 'conv-item' + (isActive ? ' active' : '');
+  
   el.onclick = () => openConversation(conv.id);
 
-  const initials = conv.userType === 'admin' ? 'AD' : conv.userLabel.slice(-4, -2).toUpperCase() || 'US';
+  // Sənin badge dizaynın
+  const countBadge = conv.message_count > 0
+    ? `<span style="font-size:10px;background:var(--surface-2);border:1px solid var(--border);
+                    border-radius:10px;padding:1px 6px;color:var(--text-3);flex-shrink:0">
+         ${conv.message_count}
+       </span>`
+    : '';
+
+  // Sənin orijinal HTML strukturun
   el.innerHTML = `
-    <div class="conv-avatar ${conv.userType === 'admin' ? 'admin-av' : 'user-av'}">${initials}</div>
+    <div class="conv-avatar admin-av">AI</div>
     <div class="conv-info">
-      <div class="conv-title">${conv.title}</div>
-      <div class="conv-preview">${conv.preview}</div>
+      <div class="conv-title">${escapeHtml(conv.title || 'Söhbət')}</div>
+      <div class="conv-preview">${escapeHtml(conv.preview || '…')}</div>
     </div>
-    <span class="conv-time">${conv.time}</span>
+    ${countBadge}
   `;
+  
   return el;
 }
-
-function openConversation(convId) {
-  currentConvId = convId;
-  const conv = db.conversations.find(c => c.id === convId);
-  if (!conv) return;
-
-  document.getElementById('chatTitle').textContent = conv.title;
-  document.getElementById('chatSub').textContent = conv.userLabel + ' · ' + conv.date;
+async function openConversation(sessionId) {
+  if (!sessionId) return;
+  
+  currentConvId = sessionId;
+  sessionUuid = sessionId; // AI-yə göndərilən ID artıq köhnə ID olur
+  document.getElementById('sessionUuid').textContent = sessionId;
 
   const container = document.getElementById('chatMessages');
-  container.innerHTML = '';
+  container.innerHTML = '<div class="loading-status">Mesajlar bərpa olunur...</div>';
 
-  // Detail header banner
-  const banner = document.createElement('div');
-  banner.className = 'conv-detail-header';
-  banner.innerHTML = `
-    <svg viewBox="0 0 24 24" onclick="closeBanner()" title="Bağla"><polyline points="15 18 9 12 15 6"/></svg>
-    <div class="conv-detail-info">
-      <div class="conv-detail-title">${conv.title}</div>
-      <div class="conv-detail-sub">${conv.userLabel} · ${conv.date} ${conv.time} · ${conv.messages.length} mesaj</div>
-    </div>
-  `;
-  container.appendChild(banner);
+  // Sidebar-da başlığı yenilə
+  const conv = conversationsCache.find(c => String(c.id) === String(sessionId));
+  if (conv) {
+    document.getElementById('chatTitle').textContent = conv.title || 'Söhbət';
+  }
 
-  conv.messages.forEach(m => appendMessage(m.role, m.content, m.time, false));
-  renderSidebar();
+  try {
+    const messages = await fetchSessionMessages(sessionId);
+    container.innerHTML = ''; // Loader-i sil
 
-  addLog('db', 'PG Query', `SELECT * FROM messages WHERE conv_id='${convId}' ORDER BY ts ASC`);
-  toggleSidebar();
+    if (messages.length === 0) {
+      appendMessage('bot', 'Bu söhbət boşdur.');
+    } else {
+      messages.forEach(m => {
+        const role = m.role === 'assistant' ? 'bot' : m.role;
+        appendMessage(role, m.content, null, false);
+      });
+    }
+    addLog('success', 'PostgreSQL', `Sessiya ${sessionId} yükləndi.`);
+  } catch (err) {
+    addLog('error', 'History', err.message);
+    container.innerHTML = `<div class="error-msg">Xəta: ${err.message}</div>`;
+  }
+
+  renderSidebar(); // Active klassını yeniləmək üçün
 }
-
 function closeBanner() { startNewChat(); }
 
 // ═══════════════════════════════════════════════
 //  CHAT
 // ═══════════════════════════════════════════════
 function startNewChat() {
-  sessionUuid = generateUuid();
-  document.getElementById('sessionUuid').textContent = sessionUuid;
-  currentConvId = null;
-  document.getElementById('chatTitle').textContent = 'Yeni Söhbət';
-  document.getElementById('chatSub').textContent = 'AI Bot — Data Search';
-  const container = document.getElementById('chatMessages');
-  container.innerHTML = `
-    <div class="chat-empty-state" id="emptyState">
-      <div class="empty-logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#2D6BE4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-      </div>
-      <div class="empty-title">Nə öyrənmək istəyirsən?</div>
-      <div class="empty-sub">AI bot data qovluğundakı faylları oxuyaraq suallarına cavab verəcək.</div>
-      <div class="empty-hints">
-        <div class="hint-chip" onclick="sendHint(this)">Satış hesabatı hansı faylda?</div>
-        <div class="hint-chip" onclick="sendHint(this)">2024-cü il məlumatları</div>
-        <div class="hint-chip" onclick="sendHint(this)">Müştəri siyahısı</div>
-        <div class="hint-chip" onclick="sendHint(this)">Son əməliyyatlar</div>
-      </div>
-    </div>
-  `;
-  statRequests = 0; statFiles = 0; statErrors = 0; statTokens = 0;
-  updateStats();
-  addLog('info', 'New Session', 'UUID: ' + sessionUuid);
-  addLog('db', 'PG Insert', `INSERT INTO sessions (uuid, created_at) VALUES ('${sessionUuid}', NOW())`);
-  renderSidebar();
-}
+    sessionUuid = generateUuid();
+    currentConvId = null;
+    
+    // UI Elementlərini tapırıq
+    const uuidEl = document.getElementById('sessionUuid');
+    const titleEl = document.getElementById('chatTitle');
+    const subEl = document.getElementById('chatSub');
+    const container = document.getElementById('chatMessages');
 
+    if (uuidEl) uuidEl.textContent = sessionUuid;
+    if (titleEl) titleEl.textContent = 'Yeni Söhbət';
+    if (subEl) subEl.textContent = 'AI Bot — Data Search';
+
+    if (container) {
+        container.innerHTML = `
+            <div class="chat-empty-state" id="emptyState">
+                <div class="empty-logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#2D6BE4" stroke-width="1.5"
+                         stroke-linecap="round" stroke-linejoin="round" style="width:48px; height:48px;">
+                        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                    </svg>
+                </div>
+                <div class="empty-title">Nə öyrənmək istəyirsən?</div>
+                <div class="empty-sub">AI bot data qovluğundakı faylları oxuyaraq suallarına cavab verəcək.</div>
+                <div class="empty-hints">
+                    <div class="hint-chip" onclick="sendHint(this)">Elvin haqqında məlumat ver</div>
+                    <div class="hint-chip" onclick="sendHint(this)">Salam</div>
+                    <div class="hint-chip" onclick="sendHint(this)">Sistemdə neçə fayl var?</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Statistikanı sıfırla
+    statRequests = 0; statFiles = 0; statErrors = 0; statTokens = 0;
+    if (typeof updateStats === 'function') updateStats();
+
+    addLog('info', 'New Session', 'UUID: ' + sessionUuid);
+    
+    // Sidebar-ı yenilə (active class-ları təmizləmək üçün)
+    if (typeof renderSidebar === 'function') renderSidebar();
+}
+ 
 function appendMessage(role, content, time, animate = true) {
   const empty = document.getElementById('emptyState');
   if (empty) empty.remove();
@@ -255,6 +252,10 @@ function appendMessage(role, content, time, animate = true) {
   const isUser = role === 'user';
   const t = time || new Date().toTimeString().slice(0, 5);
 
+  // Markdown-u HTML-ə çeviririk (Yalnız botun mesajı üçün)
+  // Əgər rol botdursa çevir, user-dirsə olduğu kimi saxla
+  const formattedContent = isUser ? content : marked.parse(content);
+
   const row = document.createElement('div');
   row.className = `msg-row ${isUser ? 'user' : 'bot'}`;
   if (!animate) row.style.animation = 'none';
@@ -262,7 +263,7 @@ function appendMessage(role, content, time, animate = true) {
   row.innerHTML = `
     <div class="msg-avatar ${isUser ? 'user-av' : 'bot-av'}">${isUser ? 'Sən' : 'AI'}</div>
     <div>
-      <div class="msg-bubble">${content}</div>
+      <div class="msg-bubble">${formattedContent}</div>
       <div class="msg-time">${t}</div>
     </div>
   `;
@@ -346,56 +347,88 @@ function getMockResponse(query) {
   };
 }
 
+async function loadSessionsFromServer() {
+  try {
+    const res = await fetch(`${API_URL}/api/sessions`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    conversationsCache = data.sessions || [];
+    renderSidebar();
+  } catch (err) {
+    addLog('error', 'Sidebar', `Session-lar yüklənmədi: ${err.message}`);
+  }
+}
+async function fetchSessionMessages(sessionId) {
+  const res = await fetch(`${API_URL}/api/history/${sessionId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return data.messages || [];
+}
+async function checkServerStatus() {
+  try {
+    const res = await fetch(`${API_URL}/api/status`);
+    const data = await res.json();
+    if (data.status === 'ok') {
+      addLog('info', 'Server', `Bağlı — ${data.file_count} fayl tapıldı`);
+      addLog('db', 'PostgreSQL', data.postgres ? 'Aktiv' : 'Mock rejim');
+      document.getElementById('statusDot').style.background = '#22C55E';
+    }
+  } catch {
+    addLog('error', 'Server', 'Flask serverlə bağlantı yoxdur — python server.py işləyirmi?');
+    document.getElementById('statusDot').style.background = '#F87171';
+  }
+}
 async function sendMessage() {
   const input = document.getElementById('chatInput');
   const msg = input.value.trim();
   if (!msg || isTyping) return;
 
   input.value = '';
-  input.style.height = 'auto';
   isTyping = true;
   statRequests++;
   updateStats();
-
   appendMessage('user', msg);
-
-  addLog('query', 'Sorğu', msg);
-  addLog('info', 'Fayl tarama', 'data/ qovluğu oxunur...');
-
   showTyping();
 
-  // Simulate processing delay with logs
-  await delay(400);
-  const mock = getMockResponse(msg);
-
-  if (mock.files.length > 0) {
-    mock.files.forEach(f => {
-      addLog('file', 'Fayl tapıldı', f);
-      statFiles++;
+  try {
+    const response = await fetch(`${API_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionUuid, // Mövcud və ya yeni UUID
+        message: msg
+      })
     });
+
+    const data = await response.json();
+    hideTyping();
+
+    if (data.error) throw new Error(data.error);
+
+    // Botun cavabını göstər
+    appendMessage('bot', data.answer);
+
+    // SERVERDƏN GƏLƏN ID-ni YADDA SAXLA
+    // Bu yeni bir söhbətdirsə, server bizə session_id qaytarmalıdır
+    if (data.session_id) {
+        sessionUuid = data.session_id;
+        currentConvId = data.session_id;
+    }
+
+    // Statistika və loqlar
+    if (data.tokens) statTokens += data.tokens;
     updateStats();
-    await delay(300);
-    addLog('info', 'OpenAI', `Mətn hazırlanır — model: gpt-4o`);
-    await delay(300);
-    const tokens = Math.floor(Math.random() * 400) + 200;
-    statTokens += tokens;
-    addLog('info', 'Tokens', `Prompt: ~${tokens - 80} · Response: ~80 · Cəmi: ${tokens}`);
-  } else {
-    addLog('error', 'Fayl tapılmadı', 'Uyğun fayl aşkarlanmadı');
-    statErrors++;
-    updateStats();
-    await delay(300);
-    addLog('info', 'OpenAI', 'Ümumi cavab generasiyası');
+
+    // SİDEBAR-I YENİLƏ (Mütləq!)
+    await loadSessionsFromServer(); 
+
+  } catch (err) {
+    hideTyping();
+    addLog('error', 'Chat Xətası', err.message);
+    appendMessage('bot', "Xəta baş verdi: " + err.message);
+  } finally {
+    isTyping = false;
   }
-
-  await delay(600);
-  addLog('db', 'PG Insert', `INSERT INTO messages (session_id, role, content, ts) VALUES (...)`);
-
-  hideTyping();
-  appendMessage('bot', mock.response);
-
-  isTyping = false;
-  showNotif('Mesaj göndərildi');
 }
 
 // ═══════════════════════════════════════════════
@@ -416,3 +449,13 @@ function showNotif(msg) {
   n.classList.add('show');
   setTimeout(() => n.classList.remove('show'), 1800);
 }
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+ 

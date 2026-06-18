@@ -300,6 +300,41 @@
     color: #fff;
     border-bottom-right-radius: 4px;
   }
+  /* Markdown elementləri üçün xüsusi tənzimləmələr */
+  .msg-bubble p {
+      margin: 0 0 10px 0; /* Abzaslar arası məsafə */
+  }
+
+  .msg-bubble p:last-child {
+      margin-bottom: 0; /* Sonuncu abzasın boşluğunu silir */
+  }
+
+  .msg-bubble ul, .msg-bubble ol {
+      margin: 8px 0;
+      padding-left: 18px; /* Nöqtələrin (bullet) içəridə qalması üçün */
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+  }
+
+  .msg-bubble li {
+      list-style-position: outside;
+      line-height: 1.5;
+  }
+
+  /* Başlıqlar (###) üçün */
+  .msg-bubble h1, .msg-bubble h2, .msg-bubble h3 {
+      font-size: 14px;
+      margin: 12px 0 6px 0;
+      font-weight: 600;
+      color: var(--accent-green); /* AI başlığı üçün yaşıl rəng tonu */
+  }
+
+  /* Qalın yazılar (**) üçün */
+  .msg-bubble strong {
+      font-weight: 600;
+      color: inherit;
+  }
   .msg-time { font-size: 10px; color: var(--text-3); margin-top: 4px; padding: 0 4px; }
   .msg-row.user .msg-time { text-align: right; }
 
