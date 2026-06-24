@@ -1,0 +1,32 @@
+[
+  {
+    "step": "Query Optimizer",
+    "label": "Orijinal sorğu -> Genişləndirilmiş sorğu",
+    "data": "2022 server siyahısını yaz -> 2022 server siyahısı",
+    "timestamp": "2026-06-21T16:59:12"
+  },
+  {
+    "step": "Postgres FTS Search",
+    "label": "Tapılan sənədlər",
+    "data": [],
+    "timestamp": "2026-06-21T16:59:12"
+  },
+  {
+    "step": "AI Generator",
+    "label": "Yekun Generasiya Olunmuş Cavab",
+    "data": "Təəssüf ki, sənədlər bazasında bu suala uyğun məlumat tapılmadı.",
+    "timestamp": "2026-06-21T16:59:12"
+  },
+  {
+    "step": "Postgres FTS Search",
+    "label": "Tapılan sənədlər",
+    "data": [],
+    "timestamp": "2026-06-21T16:59:13"
+  },
+  {
+    "step": "AI Generator",
+    "label": "Yekun Generasiya Olunmuş Cavab",
+    "data": "Təəssüf ki, sənədlər bazasında bu suala uyğun məlumat tapılmadı.",
+    "timestamp": "2026-06-21T16:59:13"
+  }
+]

@@ -1,210 +1,88 @@
-import time
-import uuid
-import json
-from file_manager import get_file_list, read_file_content
-from search_engine import python_lexical_search, anytxt_search 
-from router import route_query_to_file
-from generator import generate_final_response
-from db_manager import save_to_db, get_history, get_synonyms_from_db
+"""
+main.py
+-------
+Layihənin əsas icra nöqtəsi. İndeksi yükləyir və terminal üzərindən
+istifadəçi ilə interaktiv sorğu-cavab sessiyasını başladır.
+"""
+
+import sys
+from indexer import build_index
+from searcher import search_documents, log_step
+from generator import optimize_query, generate_answer
+from logger import reset_logs, export_logs_to_file
+
 
 def main():
-    print("🚀 AI işə düşdü...")
-    session_id = str(uuid.uuid4())
-    print(f"🆔 Session ID: {session_id}")
+    print("=" * 60)
+    print("          SÜLÜ AI - POSTGRESQL FTS BAŞLADILIR          ")
+    print("=" * 60)
+    # 1. Baza yoxlanır və sinxronizasiya edilir
+    print("Sənədlər yoxlanır və verilənlər bazasına yazılır...")
+    updated_count = build_index() 
 
-    available_files = get_file_list()
-    print(f"📁 Mövcud fayllar ({len(available_files)} ədəd): {available_files}")
+    print(f"\n[UĞURLU] Sistem hazırdır! Bazada {updated_count} fayl yeniləndi.")
+    print("Sistemdən çıxmaq üçün 'exit' yazın.\n")
     
-    last_selected_file = None 
-
-    print("📥 Sinonim bazası yüklənir...")
-    db_synonyms = get_synonyms_from_db()
-    print(f"✅ {len(db_synonyms)} sinonim qrupu yükləndi.")
-    if db_synonyms:
-        print(f"   ↳ Nümunə sinonim qrupları (ilk 3): {db_synonyms[:3]}")
-
     while True:
-        user_query = input("\n👤 Sualınız: ")
-        if user_query.lower() in ['exit', 'quit', 'cix', 'çıx']: break
-
-        print(f"\n📝 Daxil edilən sorğu: '{user_query}' (uzunluq: {len(user_query)} simvol)")
-        start_total = time.time()
-        
-        # --- 0. TARİXÇƏ ÇƏKİLMƏSİ ---
-        print("\n" + "🔍"*3 + "="*22 + " DEBUG: CHAT HISTORY " + "="*22 + "🔍"*3)
-        t0 = time.time()
-        chat_history = get_history(session_id, limit=5)
-        print(f"   ↳ Tarixçə çəkilmə müddəti: {time.time()-t0:.4f} san")
-        print(f"   ↳ Tapılan mesaj sayı: {len(chat_history)}")
-        
-        if not chat_history:
-            print("   ⚠️  Tarixçə boşdur (ilk sorğu və ya boş session).")
-        else:
-            for i, msg in enumerate(chat_history):
-                role, content = msg[0], msg[1]
-                print(f"   [{i+1}] {role.upper():10s} → {content[:80]}{'...' if len(content)>80 else ''}")
-        print("🔍" + "="*70 + "\n")
-
-        # --- 1. AXTARIŞ VƏ QƏRAR MƏNTİQİ ---
-        print("─"*30 + " [1/4] HİBRİD AXTARIŞ " + "─"*30)
-        print(f"   ↳ Son seçilən fayl (last_selected_file): {last_selected_file}")
-        start_search = time.time()
-        
-        combined_context = ""
-        selected_files = []
-        search_mode = "NONE"
-
-        # A. Fayl adları üzrə axtarış
-        print("\n🔤 [A] LEKSİKAL AXTARIŞ (Fayl adları üzrə)...")
-        t1 = time.time()
-        name_results = python_lexical_search(user_query, available_files, db_synonyms)
-        print(f"   ↳ Leksikal axtarış müddəti: {time.time()-t1:.4f} san")
-        
-        if name_results:
-            print(f"   ↳ Leksikal axtarış NƏTİCƏLƏRİ ({len(name_results)} fayl):")
-            for rank, (fname, score) in enumerate(name_results, 1):
-                print(f"      #{rank}  '{fname}'  →  xal: {score}")
-            
-            search_mode = "FILENAME"
-            selected_files = [f[0] for f in name_results[:3]]
-            print(f"\n🎯 Seçilən fayllar (top 3): {selected_files}")
-            
-            for f_name in selected_files:
-                print(f"   📂 Oxunur: '{f_name}'...")
-                t_read = time.time()
-                content = read_file_content(f_name)
-                print(f"      ↳ Oxuma müddəti: {time.time()-t_read:.4f} san | Məzmun uzunluğu: {len(content)} simvol")
-                combined_context += f"\n--- MƏNBƏ FAYL (Tam): {f_name} ---\n{content}\n"
-            
-        else:
-                print("   ❌ Leksikal axtarış nəticə vermədi.")
+        try:
+            query = input("\nSorğunuzu daxil edin: ").strip()
+            if not query:
+                continue
+            if query.lower() in ["exit", "quit", "çıxış"]:
+                print("Sistem dayandırıldı. Sağ olun!")
+                break
                 
-                # ---------------------------------------------------------
-                # B. ANYTXT İLƏ DƏRİN MƏZMUN AXTARIŞI
-                # ---------------------------------------------------------
-                print(f"\n🔬 [B] ANYTXT DƏRİN MƏZMUN AXTARIŞI...")
+            # Hər yeni sorğu üçün loqları sıfırla
+            reset_logs()
+            
+            print("Axtarılır və cavab hazırlanır...")
+            
+            # 1. Sorğunun optimallaşdırılması
+            optimized_query = optimize_query(query)
+            
+            # 2. Sənədlərin axtarışı
+            search_results = search_documents(optimized_query)
                 
-                t2 = time.time()
-                # AnyTXT özü bütün indeksdə axtarış edir, limitləməyə ehtiyac yoxdur
-                content_results = anytxt_search(user_query)
-                duration = time.time() - t2
-                print(f"   ↳ AnyTXT axtarış müddəti: {duration:.4f} san")
+            # Fallback mexanizmi (Optimallaşdırılmış sorğu tapmasa, orijinalı yoxla)
+            if not search_results:
+                search_results = search_documents(query)
                 
-                if content_results:
-                    print(f"   ↳ AnyTXT NƏTİCƏLƏRİ ({len(content_results)} faylda tapıldı):")
-                    
-                    # Tapılan fayllardan ən uyğun ilk 3-nü seçirik
-                    selected_files = list(content_results.keys())[:3]
-                    search_mode = "ANYTXT_GRANULAR"
-                    
-                    for fname in selected_files:
-                        rows = content_results[fname]
-                        print(f"      📄 '{fname}' → {len(rows)} uyğun sətir")
-                        
-                        # İlk 3 uyğun sətrin önizləməsini göstər
-                        for ri, row in enumerate(rows[:3], 1):
-                            preview = str(row)[:100]
-                            print(f"         Sətir {ri}: {preview}{'...' if len(str(row))>100 else ''}")
-                        
-                        # Kontekstə AnyTXT-dən gələn konkret sətirləri əlavə edirik
-                        combined_context += f"\n--- MƏNBƏ FAYL (AnyTXT Sətirlər): {fname} ---\n"
-                        combined_context += json.dumps(rows, indent=2, ensure_ascii=False) + "\n"
-                        print(f"   ✅ '{fname}' sətirləri kontextə əlavə edildi.")
-                    
-                    print(f"\n🎯 Seçilən AnyTXT faylları: {selected_files}")
-                    
-                else:
-                    print("   ❌ AnyTXT heç bir sənəddə uyğun məzmun tapmadı.")
-                    
-                    # ---------------------------------------------------------
-                    # C. AI ROUTER (AnyTXT nəsə tapmasa işə düşür)
-                    # ---------------------------------------------------------
-                    print(f"\n🧭 [C] AI ROUTER işə düşür...")
-                    print(f"   ↳ Router-ə göndərilən sorğu: '{user_query}'")
-                    print(f"   ↳ Router-ə göndərilən fayl siyahısı: {available_files}")
-                    print(f"   ↳ Router-ə göndərilən son fayl: {last_selected_file}")
-                    
-                    search_mode = "ROUTER"
-                    t3 = time.time()
-                    # Router hansı faylı oxumalı olduğumuza qərar verir
-                    res = route_query_to_file(user_query, available_files, chat_history, last_selected_file)
-                    router_time = time.time() - t3
-                    
-                    print(f"\n   🎯 ROUTER QƏRARI:")
-                    print(f"      ↳ Seçilən fayl:    '{res}'")
-                    print(f"      ↳ Router müddəti:  {router_time:.2f} san")
-                    
-                    if res:
-                        if res in available_files:
-                            print(f"      ✅ Router cavabı fayl siyahısında tapıldı.")
-                            selected_files = [res]
-                            print(f"   📂 Oxunur: '{res}'...")
-                            
-                            t_read = time.time()
-                            content = read_file_content(res)
-                            print(f"      ↳ Oxuma müddəti: {time.time()-t_read:.4f} san | Uzunluq: {len(content)} simvol")
-                            
-                            combined_context = f"\n--- MƏNBƏ FAYL (Router): {res} ---\n{content}"
-                        else:
-                            print(f"      ⚠️  XƏBƏRDARLIQ: Router '{res}' qaytardı amma fayl qovluqda yoxdur!")
-                    else:
-                        print(f"      ❌ Router heç bir fayl seçmədi.")
-        search_time = time.time() - start_search
-        
-        print(f"\n📊 AXTARIŞ XÜLASƏSİ:")
-        print(f"   ↳ Rejim:               {search_mode}")
-        print(f"   ↳ Seçilən fayllar:     {selected_files if selected_files else 'Heç biri'}")
-        print(f"   ↳ Context uzunluğu:    {len(combined_context)} simvol")
-        print(f"   ↳ Ümumi axtarış vaxtı: {search_time:.4f} san")
-        
-        if selected_files:
-            last_selected_file = selected_files[0]
-            print(f"   ↳ Yeni last_selected_file: '{last_selected_file}'")
+            # YENİLİK: AI-a göndərilən data mərkəzi loq sisteminə yazılır
+            log_step("LLM Input Payload", "AI-a göndərilən yekun sorğu və sənədlər", {
+                "orijinal_sorqu": query,
+                "istifade_olunan_kontext": search_results
+            })
+            
+            # 3. LLM ilə Cavab Generasiyası
+            answer = generate_answer(query, search_results)
+            
+            # YENİLİK: AI-dan gələn cavab mərkəzi loq sisteminə yazılır
+            log_step("LLM Output Response", "AI-dan qayıdan cavab", {
+                "cavab": answer
+            })
+            
+            # Nəticəni ekrana çıxar
+            print("\n" + "=" * 25 + " SÜLÜ AI CAVABI " + "=" * 25)
+            print(answer)
+            print("=" * 66)
+            
+            # BÜTÜN PROSESİ (Optimizer + FTS + AI mesajları) vahid fayla yazırıq
+            export_logs_to_file("debug_fts.json")
 
-        # --- 2. GENERATOR (SÜLÜ) ---
-        print("\n" + "─"*30 + " [3/4] GENERATOR (SÜLÜ) " + "─"*30)
-        print(f"   ↳ Generator modeli:   {__import__('config').GENERATOR_MODEL}")
-        print(f"   ↳ Sorğu uzunluğu:     {len(user_query)} simvol")
-        print(f"   ↳ Context uzunluğu:   {len(combined_context)} simvol")
-        print(f"   ↳ Tarixçə:            {len(chat_history)} mesaj")
-        print(f"   ⏳ AI cavabı gözlənilir...")
-        
-        start_generator = time.time()
-        final_answer = generate_final_response(user_query, combined_context, chat_history)
-        generator_time = time.time() - start_generator
-        
-        print(f"   ✅ Cavab alındı! ({generator_time:.2f} san, {len(final_answer)} simvol)")
-
-        # --- 3. BAZAYA YAZMA ---
-        print("\n" + "─"*30 + " [4/4] BAZAYA YAZMA " + "─"*30)
-        db_assistant_msg = final_answer
-        if selected_files:
-            source_tag = "Sətir-səviyyəli" if search_mode == "GRANULAR" else "Tam fayl"
-            db_assistant_msg += f"\n\n[Mənbələr ({source_tag}): {', '.join(selected_files)}]"
-
-        print(f"   💾 İstifadəçi mesajı yazılır (session: {session_id[:8]}...)...")
-        t_db1 = time.time()
-        save_to_db(session_id, "user", user_query)
-        print(f"      ↳ User yazıldı ({time.time()-t_db1:.4f} san)")
-        
-        t_db2 = time.time()
-        save_to_db(session_id, "assistant", db_assistant_msg)
-        print(f"      ↳ Assistant yazıldı ({time.time()-t_db2:.4f} san)")
-
-        total_time = time.time() - start_total
-
-        # --- NƏTİCƏ ÇAPI ---
-        print("\n" + "="*70)
-        print(f"🤖 Sülü Cavabı:\n{final_answer}")
-        print("─" * 70)
-        print(f"📊 PERFORMANS XÜLASƏSİ:")
-        print(f"   ↳ Axtarış Rejimi:     {search_mode}")
-        print(f"   ↳ Seçilən Fayllar:    {', '.join(selected_files) if selected_files else 'Yoxdur'}")
-        print(f"   ↳ Context ölçüsü:     {len(combined_context)} simvol")
-        print(f"   ↳ Axtarış Müddəti:    {search_time:.4f} san")
-        print(f"   ↳ Generator AI:       {generator_time:.2f} san")
-        print(f"   ↳ ÜMUMİ VAXT:         {total_time:.2f} san")
-        print("="*70)
+        except Exception as e:
+            # Hər hansı xəta olarsa, o ana qədər yığılan hər şeyi mütləq fayla yaz
+            export_logs_to_file("debug_fts.json")
+            print(f"Gözlənilməz sistem xətası: {e}")
+        except Exception as e:
+            # KRİTİK DEYİŞİKLİK: Əgər kodun hər hansı yerində xəta olarsa, 
+            # mövcud loqları mütləq fayla yazırıq ki, səbəbi analiz edə bilək.
+            export_logs_to_file("debug_fts.json")
+            print(f"Gözlənilməz sistem xətası: {e}")
+        except KeyboardInterrupt:
+            print("\nSistem istifadəçi tərəfindən dayandırıldı.")
+            break
+        except Exception as e:
+            print(f"\nGözlənilməz sistem xətası: {e}")
 
 if __name__ == "__main__":
     main()
