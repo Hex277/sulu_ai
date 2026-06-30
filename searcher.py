@@ -9,55 +9,63 @@ import re
 from config import get_db_connection, TOP_K_RESULTS, FULL_TEXT_CHAR_LIMIT, SNIPPET_WINDOW, MAX_SNIPPETS_PER_FILE
 from indexer import tokenize, az_lower
 from logger import log_step
+def normalize_aze_text(text: str) -> str:
+    """Azərbaycan hərflərini ingilis qarşılıqlarına çevirir."""
+    mapping = {
+        'ə': 'e', 'ç': 'c', 'ş': 's', 'ğ': 'g', 'ö': 'o', 'ü': 'u', 'ı': 'i',
+        'MÜƏLLİM': 'muellim' # Ümumi vizual xəritə üçün
+    }
+    cleaned = text.lower()
+    for aze, eng in mapping.items():
+        cleaned = cleaned.replace(aze, eng)
+    return cleaned
 
 def search_documents(query: str) -> list[dict]:
+    # Orijinal təmizlənmiş sorğu
     cleaned_query = az_lower(query.strip())
-    tokenized_query = tokenize(cleaned_query)
     
-    if not tokenized_query:
-        tokenized_query = cleaned_query.split()
+    stopwords = {
+        "yaz", "tap", "goster", "göstər", "olan", "haqqinda", "haqqında", "haqda",
+        "barede", "barədə", "fayli", "faylı", "daxili", "daxilinde", "daxilində", 
+        "daxilindəki", "ve", "və", "ile", "ilə", "edir", "eden", "edən", 
+        "kimdir", "nedir", "nədir", "siyahisini", "siyahısını", "melumati", "məlumatı",
+        "melumat", "məlumat", "ver", "bax", "siyahı", "siyahisi"
+    }
+    
+    raw_tokens = tokenize(cleaned_query)
+    filtered_tokens = [w for w in raw_tokens if w not in stopwords]
+    
+    if not filtered_tokens:
+        filtered_tokens = raw_tokens
         
-    if not tokenized_query:
+    # --- 🌟 DUAL SİMVOL GENİŞLƏNDİRİLMƏSİ ---
+    # Həm orijinal sözü, həm də onun ingilis variantını sorğuya əlavə edirik.
+    # Məsələn: ['müəllim'] -> ['müəllim', 'muellim']
+    expanded_tokens = []
+    for token in filtered_tokens:
+        expanded_tokens.append(token)
+        normalized = normalize_aze_text(token)
+        if normalized != token:
+            expanded_tokens.append(normalized)
+            
+    # Postgres plainto_tsquery üçün düz mətn formatına salırıq
+    final_search_text = " ".join(expanded_tokens)
+    
+    if not final_search_text.strip():
         return []
-        
-    tokenized_query = [t for t in tokenized_query if t.strip()]
-    ts_query_str = " | ".join([f"{token}:*" for token in tokenized_query])
-    
+
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # --- ULTRA DEBUG BLOKU START ---
-    # 1. Bazadakı sənədlərin search_vector daxilində REAL olaraq hansı sözlər var?
-    cursor.execute("SELECT filename, search_vector FROM documents LIMIT 2;")
-    vector_samples = cursor.fetchall()
-    
-    debug_vectors = []
-    for r in vector_samples:
-        fname = r["filename"] if isinstance(r, dict) else r[0]
-        s_vec = r["search_vector"] if isinstance(r, dict) else r[1]
-        debug_vectors.append({"fayl": fname, "vektor_kontenti": str(s_vec)})
-        
-    # 2. Bizim axtardığımız ts_query_str-i Postgres necə parse edir?
-    cursor.execute("SELECT to_tsquery('simple', %s)::text AS parsed_query;", (ts_query_str,))
-    pq_row = cursor.fetchone()
-    parsed_q_str = pq_row["parsed_query"] if isinstance(pq_row, dict) else pq_row[0]
-    
-    log_step("FTS Deep Inspection", "Postgres Daxili Tokenləri", {
-        "bazadaki_real_vektorlar": debug_vectors,
-        "postgres_gozuyle_tsquery": parsed_q_str,
-        "bizim_gonderdiyimiz_raw_tsquery": ts_query_str
-    })
-    # --- ULTRA DEBUG BLOKU END ---
-    # Əsas FTS Sorğusu
+    # plainto_tsquery həm fayl adındakı 'muellim'-i, həm də daxildəki 'elvin'-i tapacaq.
     cursor.execute("""
         SELECT filepath, filename, content, 
-               ts_rank(search_vector, to_tsquery('simple', %s)) AS score
+               ts_rank(search_vector, plainto_tsquery('simple', %s)) AS score
         FROM documents
-        WHERE search_vector @@ to_tsquery('simple', %s)
-          AND ts_rank(search_vector, to_tsquery('simple', %s)) > 0
+        WHERE search_vector @@ plainto_tsquery('simple', %s)
         ORDER BY score DESC
         LIMIT %s;
-    """, (ts_query_str, ts_query_str, ts_query_str, TOP_K_RESULTS))
+    """, (final_search_text, final_search_text, TOP_K_RESULTS))
     
     rows = cursor.fetchall()
     conn.close()
@@ -72,7 +80,6 @@ def search_documents(query: str) -> list[dict]:
         else:
             filepath, filename, content, score = row
             
-        
         if len(content) <= FULL_TEXT_CHAR_LIMIT:
             context_text = content
             is_full = True
@@ -82,8 +89,12 @@ def search_documents(query: str) -> list[dict]:
             lower_content = az_lower(content)
             
             found_positions = []
-            for token in tokenized_query:
+            # Snippet çıxararkən həm orijinal, həm də normallaşdırılmış sözləri mətndə axtarırıq
+            for token in expanded_tokens:
                 for m in re.finditer(re.escape(token), lower_content):
+                    found_positions.append(m.start())
+                # Əlavə olaraq mətndə ingiliscə yazılıbsa onu da tutmaq üçün:
+                for m in re.finditer(re.escape(normalize_aze_text(token)), lower_content):
                     found_positions.append(m.start())
             
             found_positions = sorted(list(set(found_positions)))
