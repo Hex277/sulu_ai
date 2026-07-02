@@ -53,15 +53,19 @@ def main():
             
             # 2. Axtarış et
             optimized_query = optimize_query(query)
-            search_results = search_documents(optimized_query)
-            if not search_results:
-                search_results = search_documents(query)
+            
+            search_results = []
+            if optimized_query == "NO_DATA":
+                print("AI: Ümumi söhbət aşkarlandı, bazada axtarış edilmir...")
+            else:
+                # Yalnız data tələbi olduqda bazaya müraciət edirik
+                search_results = search_documents(optimized_query)
+                if not search_results:
+                    search_results = search_documents(query)
                 
             # 3. Cavabı al
             answer = generate_answer(query, search_results, history=history)
             
-            # 4. YADDAŞA YAZMA ARDICILLIĞI:
-            # Öncə istifadəçinin sualını yaz
             memory.add_message("user", query)
             # Sonra AI-ın cavabını yaz
             memory.add_message("assistant", answer)

@@ -19,84 +19,118 @@ def normalize_aze_text(text: str) -> str:
     for aze, eng in mapping.items():
         cleaned = cleaned.replace(aze, eng)
     return cleaned
-
 def search_documents(query: str) -> list[dict]:
-    # Orijinal təmizlənmiş sorğu
     cleaned_query = az_lower(query.strip())
+    tokens = tokenize(cleaned_query)
     
-    stopwords = {
-        "yaz", "tap", "goster", "göstər", "olan", "haqqinda", "haqqında", "haqda",
-        "barede", "barədə", "fayli", "faylı", "daxili", "daxilinde", "daxilində", 
-        "daxilindəki", "ve", "və", "ile", "ilə", "edir", "eden", "edən", 
-        "kimdir", "nedir", "nədir", "siyahisini", "siyahısını", "melumati", "məlumatı",
-        "melumat", "məlumat", "ver", "bax", "siyahı", "siyahisi"
-    }
-    
-    raw_tokens = tokenize(cleaned_query)
-    filtered_tokens = [w for w in raw_tokens if w not in stopwords]
-    
-    if not filtered_tokens:
-        filtered_tokens = raw_tokens
-        
-    # --- 🌟 DUAL SİMVOL GENİŞLƏNDİRİLMƏSİ ---
-    # Həm orijinal sözü, həm də onun ingilis variantını sorğuya əlavə edirik.
-    # Məsələn: ['müəllim'] -> ['müəllim', 'muellim']
-    expanded_tokens = []
-    for token in filtered_tokens:
-        expanded_tokens.append(token)
-        normalized = normalize_aze_text(token)
-        if normalized != token:
-            expanded_tokens.append(normalized)
-            
-    # Postgres plainto_tsquery üçün düz mətn formatına salırıq
-    final_search_text = " ".join(expanded_tokens)
-    
-    if not final_search_text.strip():
-        return []
-
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # plainto_tsquery həm fayl adındakı 'muellim'-i, həm də daxildəki 'elvin'-i tapacaq.
-    cursor.execute("""
-        SELECT filepath, filename, content, 
-               ts_rank(search_vector, plainto_tsquery('simple', %s)) AS score
-        FROM documents
-        WHERE search_vector @@ plainto_tsquery('simple', %s)
-        ORDER BY score DESC
-        LIMIT %s;
-    """, (final_search_text, final_search_text, TOP_K_RESULTS))
+    # 1. STRATEGİYA: İstifadəçi birbaşa bazadakı fayllardan birinin adını çəkibmi?
+    cursor.execute("SELECT DISTINCT filename FROM documents")
+    all_indexed_files = [r['filename'] for r in cursor.fetchall()]
     
-    rows = cursor.fetchall()
-    conn.close()
-    
-    results = []
-    for row in rows:
-        if isinstance(row, dict):
-            filepath = row.get("filepath")
-            filename = row.get("filename")
-            content = row.get("content", "")
-            score = row.get("score", 0.0)
-        else:
-            filepath, filename, content, score = row
+    targeted_filename = None
+    for fname in all_indexed_files:
+        fname_lower = az_lower(fname)
+        fname_base = fname_lower.split('.')[0] # uzantısız ad (məs: muellim_siyahisi)
+        if fname_lower in cleaned_query or fname_base in cleaned_query:
+            targeted_filename = fname
+            break
             
-        if len(content) <= FULL_TEXT_CHAR_LIMIT:
-            context_text = content
-            is_full = True
+    # Əgər birbaşa fayl adı tələb olunursa (Məs: "muellim_siyahisi faylının daxilini yaz")
+    if targeted_filename:
+        cursor.execute("""
+            SELECT content 
+            FROM documents 
+            WHERE filename = %s 
+            ORDER BY id ASC
+        """, (targeted_filename,))
+        rows = cursor.fetchall()
+        
+        full_text = "\n".join([r['content'] for r in rows])
+        # Simvol limitini aşmamaq üçün qoruyucu bənd
+        if len(full_text) > 10000:
+            full_text = full_text[:10000] + "\n... [Mətn çox uzun olduğu üçün limit daxilində kəsildi] ..."
+            
+        cursor.close()
+        conn.close()
+        
+        log_step("Axtarış", f"Birbaşa Fayl Marşrutlaşdırma: {targeted_filename}", f"Həcm: {len(full_text)} simvol")
+        return [{
+            "path": targeted_filename,
+            "filename": targeted_filename,
+            "score": 1.0,
+            "context": f"=== FAYLIN TAM DAXİLİ MƏLUMATI ({targeted_filename}) ===\n{full_text}",
+            "is_full_text": True
+        }]
+
+    # 2. STRATEGİYA: Standart Full-Text Search (Ada görə axtarış və s.)
+    if not tokens:
+        cursor.close()
+        conn.close()
+        return []
+        
+    fts_query = " & ".join(tokens)
+    results = []
+    seen_excel_files = set()
+    
+    try:
+        cursor.execute("""
+            SELECT filepath, filename, content, ts_rank(search_vector, to_tsquery('simple', %s)) as score
+            FROM documents
+            WHERE search_vector @@ to_tsquery('simple', %s)
+            ORDER BY score DESC
+            LIMIT %s
+        """, (fts_query, fts_query, TOP_K_RESULTS))
+        fts_rows = cursor.fetchall()
+    except Exception:
+        # FTS-də problem olarsa fallback olaraq ILIKE axtarışı
+        cursor.execute("""
+            SELECT filepath, filename, content, 1.0 as score 
+            FROM documents 
+            WHERE content ILIKE %s 
+            LIMIT %s
+        """, (f"%{cleaned_query}%", TOP_K_RESULTS))
+        fts_rows = cursor.fetchall()
+
+    for row in fts_rows:
+        filename = row['filename']
+        filepath = row['filepath']
+        content = row['content']
+        score = row['score'] if 'score' in row else 1.0
+        
+        # Əgər tapılan sətir Excel (.xlsx) və ya CSV-yə aiddirsə, konteksti avtomatik GENİŞLƏNDİRİRİK
+        if filename.endswith(('.xlsx', '.csv')):
+            if filename in seen_excel_files:
+                continue # Bu faylı artıq bütöv şəkildə kontekstə daxil etmişik
+            seen_excel_files.add(filename)
+            
+            # Həmin excel-ə aid olan bütün sətirləri bazadan bütövlüklə çəkirik
+            inner_cursor = conn.cursor()
+            inner_cursor.execute("SELECT content FROM documents WHERE filename = %s ORDER BY id ASC", (filename,))
+            all_table_rows = inner_cursor.fetchall()
+            inner_cursor.close()
+            
+            excel_context = "\n".join([r['content'] for r in all_table_rows])
+            if len(excel_context) > 10000:
+                excel_context = excel_context[:10000] + "\n... [Cədvəl çox böyükdür, kəsildi] ..."
+                
+            results.append({
+                "path": filepath,
+                "filename": filename,
+                "score": score + 0.5, # Excel bütövlüyünə görə skoru artırırıq
+                "context": f"=== CƏDVƏLİN TAM SİYAHISI ({filename}) ===\n{excel_context}",
+                "is_full_text": True
+            })
         else:
-            is_full = False
+            # Word, PDF və ya TXT sənədləri üçün standart snippet çıxarılması
             snippets = []
             lower_content = az_lower(content)
-            
             found_positions = []
-            # Snippet çıxararkən həm orijinal, həm də normallaşdırılmış sözləri mətndə axtarırıq
-            for token in expanded_tokens:
+            for token in tokens:
                 for m in re.finditer(re.escape(token), lower_content):
                     found_positions.append(m.start())
-                # Əlavə olaraq mətndə ingiliscə yazılıbsa onu da tutmaq üçün:
-                for m in re.finditer(re.escape(normalize_aze_text(token)), lower_content):
-                    found_positions.append(m.start())
-            
             found_positions = sorted(list(set(found_positions)))
             
             for pos in found_positions[:MAX_SNIPPETS_PER_FILE]:
@@ -104,18 +138,16 @@ def search_documents(query: str) -> list[dict]:
                 end = min(len(content), pos + SNIPPET_WINDOW)
                 snippets.append(content[start:end].strip())
             
-            if not snippets:
-                context_text = content[:FULL_TEXT_CHAR_LIMIT]
-            else:
-                context_text = "\n\n... [kəsik] ...\n\n".join(snippets)
-        
-        results.append({
-            "path": filepath,
-            "filename": filename,
-            "score": round(score, 3),
-            "context": context_text,
-            "is_full_text": is_full
-        })
-        
-    log_step("Postgres FTS Search", "Tapılan sənədlər", results)
+            context_text = "\n\n... [kəsik] ...\n\n".join(snippets) if snippets else content[:FULL_TEXT_CHAR_LIMIT]
+            
+            results.append({
+                "path": filepath,
+                "filename": filename,
+                "score": round(score, 3),
+                "context": context_text,
+                "is_full_text": False
+            })
+            
+    cursor.close()
+    conn.close()
     return results

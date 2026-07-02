@@ -6,10 +6,10 @@ def init_memory_db():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS chat_history (
-                id SERIAL PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                role VARCHAR(20) NOT NULL,
+           CREATE TABLE IF NOT EXISTS chat_history (
+               id SERIAL PRIMARY KEY,
+               user_id TEXT NOT NULL,
+               role VARCHAR(20) NOT NULL,
                 content TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
